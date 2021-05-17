@@ -424,6 +424,18 @@ public:
 		m_MaterialFile = std::move(d.m_MaterialFile);
 		m_MaterialIndices = std::move(d.m_MaterialIndices);
 	}
+	void operator=(const MeshData& d) {
+		m_Vertices = d.m_Vertices;
+		m_Normals = d.m_Normals;
+		m_TextureCoords = d.m_TextureCoords;
+		m_Colors = d.m_Colors;
+		m_FaceIndicesVertices = d.m_FaceIndicesVertices;
+		m_FaceIndicesNormals = d.m_FaceIndicesNormals;
+		m_FaceIndicesTextureCoords = d.m_FaceIndicesTextureCoords;
+		m_FaceIndicesColors = d.m_FaceIndicesColors;
+		m_MaterialFile = d.m_MaterialFile;
+		m_MaterialIndices = d.m_MaterialIndices;
+	}
 	void clear() {
 		m_Vertices.clear();
 		m_Normals.clear();
