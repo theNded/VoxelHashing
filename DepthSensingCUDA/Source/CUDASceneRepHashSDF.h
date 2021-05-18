@@ -62,7 +62,6 @@ public:
 	}
 
 	void integrate(const mat4f& lastRigidTransform, const DepthCameraData& depthCameraData, const DepthCameraParams& depthCameraParams, unsigned int* d_bitMask) {
-		
 		setLastRigidTransform(lastRigidTransform);
 
 		//make the rigid transform available on the GPU

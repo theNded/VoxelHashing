@@ -167,11 +167,12 @@ HRESULT CUDARGBDSensor::process(ID3D11DeviceContext* context)
 	//Start Timing
 	if (GlobalAppState::get().s_timingsDetailledEnabled) { cutilSafeCall(cudaDeviceSynchronize()); m_timer.start(); }
 
+	std::cout << "m_bFilterDepthValues = " << m_bFilterDepthValues << "\n";
 	if (m_bFilterDepthValues) gaussFilterFloatMap(d_depthMapFilteredFloat, m_RGBDAdapter->getDepthMapResampledFloat(), m_fBilateralFilterSigmaD, m_fBilateralFilterSigmaR, m_RGBDAdapter->getWidth(), m_RGBDAdapter->getHeight());
 	else					 copyFloatMap(d_depthMapFilteredFloat, m_RGBDAdapter->getDepthMapResampledFloat(), m_RGBDAdapter->getWidth(), m_RGBDAdapter->getHeight());
 
 	//TODO this call seems not needed as the depth map is overwriten later anyway later anyway...
-	setInvalidFloatMap(m_depthCameraData.d_depthData, m_RGBDAdapter->getWidth(), m_RGBDAdapter->getHeight());
+	//setInvalidFloatMap(m_depthCameraData.d_depthData, m_RGBDAdapter->getWidth(), m_RGBDAdapter->getHeight());
 
 	// Stop Timing
 	if (GlobalAppState::get().s_timingsDetailledEnabled) { cutilSafeCall(cudaDeviceSynchronize()); m_timer.stop(); TimingLog::totalTimeFilterDepth += m_timer.getElapsedTimeMS(); TimingLog::countTimeFilterDepth++; }
@@ -185,6 +186,7 @@ HRESULT CUDARGBDSensor::process(ID3D11DeviceContext* context)
 
 	if (GlobalAppState::get().s_bUseCameraCalibration)
 	{
+		std::cout << "use camera calibration\n";
 		mat4f depthExt = m_RGBDAdapter->getDepthExtrinsics();
 
 		g_CustomRenderTarget.Clear(context);
@@ -203,6 +205,7 @@ HRESULT CUDARGBDSensor::process(ID3D11DeviceContext* context)
 	}
 	else
 	{
+		std::cout << "not use camera calibration\n";
 		copyFloatMap(m_depthCameraData.d_depthData, d_depthMapFilteredFloat, m_RGBDAdapter->getWidth(), m_RGBDAdapter->getHeight());
 	}
 

@@ -276,7 +276,7 @@ inline BinaryDataStream<BinaryDataBuffer, BinaryDataCompressor>& operator>>(Bina
 
 		s >> sensorData.m_trajectory;
 	} else {
-		throw MLIB_EXCEPTION("Calibrated Sensor Data: Invalid file version");
+		throw MLIB_EXCEPTION("TODO: implement a simple .sense wrapper for stanford dataset. Calibrated Sensor Data: Invalid file version");
 	}
 
 	return s;

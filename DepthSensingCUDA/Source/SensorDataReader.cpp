@@ -125,6 +125,7 @@ HRESULT SensorDataReader::processDepth()
 
 		for (unsigned int i = 0; i < getDepthWidth()*getDepthHeight(); i++) {
 			depth[i] = (float)frameState.m_depthFrame[i] / m_sensorData->m_depthShift;
+			//std::cout << depth[i] << "\n";
 		}
 
 		//{
@@ -132,12 +133,13 @@ HRESULT SensorDataReader::processDepth()
 		//	ColorImageR8G8B8 c(getColorHeight(), getColorWidth(), frameState.m_colorFrame);
 		//	FreeImageWrapper::saveImage("test_color.png", c);
 		//}
-		//{
-		//	//debug
-		//	DepthImage d(getDepthHeight(), getDepthWidth(), depth);
-		//	ColorImageRGBA c(d);
-		//	FreeImageWrapper::saveImage("test_depth.png", d);
-		//}
+		{
+			 //debug
+			//DepthImage d(getDepthHeight(), getDepthWidth(), depth);
+			//ColorImageRGBA c(d);
+			//FreeImageWrapper::saveImage("test_depth.png", d);
+			//system("pause");
+		}
 
 		incrementRingbufIdx();
 

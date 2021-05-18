@@ -167,6 +167,7 @@ __global__ void allocKernel(HashData hashData, DepthCameraData cameraData, const
 	{
 
 		float d = tex2D(depthTextureRef, x, y);
+		//printf("d = %f\n", d);
 		
 		//if (d == MINF || d < cameraParams.m_sensorDepthWorldMin || d > cameraParams.m_sensorDepthWorldMax)	return;
 		if (d == MINF || d == 0.0f)	return;
@@ -248,6 +249,7 @@ extern "C" void allocCUDA(HashData& hashData, const HashParams& hashParams, cons
 	const dim3 gridSize((depthCameraParams.m_imageWidth + T_PER_BLOCK - 1)/T_PER_BLOCK, (depthCameraParams.m_imageHeight + T_PER_BLOCK - 1)/T_PER_BLOCK);
 	const dim3 blockSize(T_PER_BLOCK, T_PER_BLOCK);
 
+	std::cout << "calling allocKerne\n";
 	allocKernel<<<gridSize, blockSize>>>(hashData, depthCameraData, d_bitMask);
 
 	#ifdef _DEBUG

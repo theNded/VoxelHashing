@@ -120,7 +120,11 @@ HRESULT CUDARGBDAdapter::process(ID3D11DeviceContext* context)
 	////////////////////////////////////////////////////////////////////////////////////
 	
 	const unsigned int bufferDimDepthInput = m_RGBDSensor->getDepthWidth()*m_RGBDSensor->getDepthHeight();
+	for (int i = 0; i < m_RGBDSensor->getDepthWidth() * m_RGBDSensor->getDepthHeight(); ++i) {
+		//std::cout << "raw depth " << i << " = " << m_RGBDSensor->getDepthFloat()[i] << "\n";
+	}
 	cutilSafeCall(cudaMemcpy(d_depthMapFloat, m_RGBDSensor->getDepthFloat(), sizeof(float)*m_RGBDSensor->getDepthWidth()* m_RGBDSensor->getDepthHeight(), cudaMemcpyHostToDevice));
+	std::cout << "resample depth!\n";
 	resampleFloatMap(d_depthMapResampledFloat, m_width, m_height, d_depthMapFloat, m_RGBDSensor->getDepthWidth(), m_RGBDSensor->getDepthHeight(), NULL);
 
 	// Stop Timing

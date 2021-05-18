@@ -28,7 +28,7 @@ __global__ void copyFloatMapDevice(float* d_output, float* d_input, unsigned int
 	const int y = blockIdx.y*blockDim.y + threadIdx.y;
 
 	if(x >= width || y >= height) return;
-
+	//printf("%f\n", d_input[y * width + x]);
 	d_output[y*width+x] = d_input[y*width+x];
 }
 
@@ -1090,6 +1090,7 @@ inline __device__ float bilinearInterpolationFloat(float x, float y, float* d_in
 	if(w0 > 0.0f) { ss += (1.0f-beta)*p0; ww += (1.0f-beta); }
 	if(w1 > 0.0f) { ss +=		beta *p1; ww +=		  beta ; }
 
+	//printf("%f %f: (%f, %f), (%f, %f)->(%f, %f)\n", x, y, s0, w0, s1, w1, ss, ww);
 	if(ww > 0.0f) return ss/ww;
 	else		  return MINF;
 }
@@ -1109,7 +1110,10 @@ __global__ void resampleFloatMapDevice(float* d_colorMapResampledFloat, float* d
 
 		if(xInput < inputWidth && yInput < inputHeight)
 		{
-			d_colorMapResampledFloat[y*outputWidth+x] = bilinearInterpolationFloat(x*scaleWidth, y*scaleHeight, d_colorMapFloat, inputWidth, inputHeight);
+			float v = d_colorMapFloat[yInput * inputWidth + xInput];
+			//float vv = bilinearInterpolationFloat(x*scaleWidth, y*scaleHeight, d_colorMapFloat, inputWidth, inputHeight);
+			//printf("%d %d %d %d -> %f, %f\n", x, y, xInput, yInput, v, vv);
+			d_colorMapResampledFloat[y*outputWidth+x] = v;
 		}
 	}
 }
@@ -1119,6 +1123,7 @@ extern "C" void resampleFloatMap(float* d_colorMapResampledFloat, unsigned int o
 	const dim3 gridSize((outputWidth + T_PER_BLOCK - 1)/T_PER_BLOCK, (outputHeight + T_PER_BLOCK - 1)/T_PER_BLOCK);
 	const dim3 blockSize(T_PER_BLOCK, T_PER_BLOCK);
 
+	printf("Resample: %d %d -> %d %d\n", inputWidth, inputHeight, outputWidth, outputHeight);
 	resampleFloatMapDevice<<<gridSize, blockSize>>>(d_colorMapResampledFloat, d_colorMapFloat, inputWidth, inputHeight, outputWidth, outputHeight);
 #ifdef _DEBUG
 	cutilSafeCall(cudaDeviceSynchronize());
@@ -1743,6 +1748,7 @@ __global__ void depthToHSVDevice(float4* d_output, float* d_input, unsigned int 
 	if (x >= 0 && x < width && y >= 0 && y < height) {
 		
 		float depth = d_input[y*width + x];
+		//printf("%f\n", depth);
 		if (depth != MINF && depth != 0.0f && depth >= minDepth && depth <= maxDepth) {
 			float3 c = convertDepthToRGB(depth, minDepth, maxDepth);
 			d_output[y*width + x] = make_float4(c, 1.0f);

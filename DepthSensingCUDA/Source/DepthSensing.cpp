@@ -825,11 +825,14 @@ void reconstruction()
 }
 
 //--------------------------------------------------------------------------------------
-// Render the scene using the D3D11 device
+// Render the scene using the D3D11 device, 
+// MAIN LOOP ITERATION ENTRY
 //--------------------------------------------------------------------------------------
 
 void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext* pd3dImmediateContext, double fTime, float fElapsedTime, void* pUserContext )
 {
+	std::cout << "On Frame Render\n";
+	//system("pause");
 	//g_historgram->computeHistrogram(g_sceneRep->getHashData(), g_sceneRep->getHashParams());
 
 	// If the settings dialog is being shown, then render it instead of rendering the app's scene

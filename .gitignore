@@ -1,2 +1,7 @@
 x64/
 .vs/
+CompiledShaders/
+*.png
+*.bmp
+*.sens
+*.hashgrid
