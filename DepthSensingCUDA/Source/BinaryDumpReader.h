@@ -54,6 +54,8 @@ private:
 	unsigned int	m_CurrFrame;
 	bool			m_bHasColorData;
 
+	std::vector<std::string> color_filenames_;
+	std::vector<std::string> depth_filenames_;
 };
 
 

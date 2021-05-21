@@ -776,7 +776,7 @@ void reconstruction()
 	}
 
 	//std::cout << transformation << std::endl;
-	//std::cout << g_CudaDepthSensor.getRigidTransform() << std::endl << std::endl;
+	std::cout << g_CudaDepthSensor.getRigidTransform() << std::endl << std::endl;
 
 	if (transformation(0, 0) == -std::numeric_limits<float>::infinity()) {
 		std::cout << "!!! TRACKING LOST !!!" << std::endl;
@@ -831,7 +831,6 @@ void reconstruction()
 
 void CALLBACK OnD3D11FrameRender( ID3D11Device* pd3dDevice, ID3D11DeviceContext* pd3dImmediateContext, double fTime, float fElapsedTime, void* pUserContext )
 {
-	std::cout << "On Frame Render\n";
 	//system("pause");
 	//g_historgram->computeHistrogram(g_sceneRep->getHashData(), g_sceneRep->getHashParams());
 

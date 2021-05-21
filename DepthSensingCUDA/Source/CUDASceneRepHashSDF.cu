@@ -442,8 +442,8 @@ __global__ void integrateDepthMapKernel(HashData hashData, DepthCameraData camer
 			//color = bilinearFilterColor(cameraData.cameraToKinectScreenFloat(pf));
 		}
 
-		if (color.x != MINF && depth != MINF) { // valid depth and color
-		//if (depth != MINF) {	//valid depth
+		//if (color.x != MINF && depth != MINF) { // valid depth and color
+		if (depth != MINF) {	//valid depth
 
 			if (depth < hashParams.m_maxIntegrationDistance) {
 				float depthZeroOne = cameraData.cameraToKinectProjZ(depth);

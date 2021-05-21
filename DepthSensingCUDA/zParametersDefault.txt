@@ -43,7 +43,7 @@ s_SDFRayThresDistFactor = 50.0f;		//(don't touch) s_SDFRayThresDist = s_SDFRayTh
 s_SDFUseGradients 		= false;		//analytic gradients for rendering
 
 // .sens file input for offline processing (need to set s_sensorIdx accordingly)
-s_binaryDumpSensorFile[0] = "office3.sens";
+s_binaryDumpSensorFile[0] = "apt0.sens";
 //s_binaryDumpSensorFile[0] = "./DumpOutput/1LXtFkjw3qL_0.sens";
 //s_binaryDumpSensorFile[1] = "./DumpOutput/1LXtFkjw3qL_1.sens";
 //s_binaryDumpSensorFile[2] = "./DumpOutput/1LXtFkjw3qL_2.sens";
@@ -77,7 +77,7 @@ s_lightDiffuse 			= 0.6f 0.52944f 0.4566f 0.6f;
 s_lightSpecular 		= 0.3f 0.3f 0.3f 1.0f;
 s_lightDirection 		= 0.0f -1.0f 2.0f;
 
-s_RenderMode = 2;
+s_RenderMode = 1;
 
 s_useColorForRendering = false;
 s_playData = true;
