@@ -1,287 +1,307 @@
-#include "stdafx.h"
-
-#include "VoxelUtilHashSDF.h"
-#include "RayCastSDFUtil.h"
 #include "CUDAMarchingCubesHashSDF.h"
+
+#include "RayCastSDFUtil.h"
+#include "VoxelUtilHashSDF.h"
+#include "stdafx.h"
 
 extern "C" void resetMarchingCubesCUDA(MarchingCubesData& data);
 extern "C" void extractIsoSurfaceCUDA(const HashData& hashData,
-										 const RayCastData& rayCastData,
-										 const MarchingCubesParams& params,
-										 MarchingCubesData& data);
+                                      const RayCastData& rayCastData,
+                                      const MarchingCubesParams& params,
+                                      MarchingCubesData& data);
 
+extern "C" void extractIsoSurfacePass1CUDA(const HashData& hashData,
+                                           const RayCastData& rayCastData,
+                                           const MarchingCubesParams& params,
+                                           MarchingCubesData& data);
+extern "C" void extractIsoSurfacePass2CUDA(const HashData& hashData,
+                                           const RayCastData& rayCastData,
+                                           const MarchingCubesParams& params,
+                                           MarchingCubesData& data,
+                                           unsigned int numOccupiedBlocks);
 
-extern "C" void extractIsoSurfacePass1CUDA(const HashData& hashData, const RayCastData& rayCastData, const MarchingCubesParams& params, MarchingCubesData& data);
-extern "C" void extractIsoSurfacePass2CUDA(const HashData& hashData, const RayCastData& rayCastData, const MarchingCubesParams& params, MarchingCubesData& data, unsigned int numOccupiedBlocks);
+void CUDAMarchingCubesHashSDF::create(const MarchingCubesParams& params) {
+    m_params = params;
+    m_data.allocate(m_params);
 
-void CUDAMarchingCubesHashSDF::create(const MarchingCubesParams& params)
-{ 
-	m_params = params;
-	m_data.allocate(m_params);
-
-	resetMarchingCubesCUDA(m_data);
+    resetMarchingCubesCUDA(m_data);
 }
 
-void CUDAMarchingCubesHashSDF::destroy(void)
-{
-	m_data.free();
-}
+void CUDAMarchingCubesHashSDF::destroy(void) { m_data.free(); }
 
 void CUDAMarchingCubesHashSDF::copyTrianglesToCPU() {
+    // could  be a bit more efficient here; rather than allocating so much
+    // memory; just allocate depending on the triangle size;
+    MarchingCubesData cpuData = m_data.copyToCPU();
 
-	//could  be a bit more efficient here; rather than allocating so much memory; just allocate depending on the triangle size;
-	MarchingCubesData cpuData = m_data.copyToCPU();
+    unsigned int nTriangles = *cpuData.d_numTriangles;
 
-	unsigned int nTriangles = *cpuData.d_numTriangles;
+    if (nTriangles >= m_params.m_maxNumTriangles)
+        throw MLIB_EXCEPTION(
+                "not enough memory to store triangles for chunk; increase "
+                "s_marchingCubesMaxNumTriangles");
 
-	if (nTriangles >= m_params.m_maxNumTriangles) throw MLIB_EXCEPTION("not enough memory to store triangles for chunk; increase s_marchingCubesMaxNumTriangles");
+    // std::cout << "Marching Cubes: #triangles = " << nTriangles << std::endl;
 
-	//std::cout << "Marching Cubes: #triangles = " << nTriangles << std::endl;
+    if (!GlobalAppState::get().s_offlineProcessing) {
+        if (nTriangles != 0) {
+            unsigned int baseIdx = (unsigned int)m_meshData.m_Vertices.size();
+            m_meshData.m_Vertices.resize(baseIdx + 3 * nTriangles);
+            m_meshData.m_Colors.resize(baseIdx + 3 * nTriangles);
 
-	
-	if (!GlobalAppState::get().s_offlineProcessing) {
-		if (nTriangles != 0) {
-			unsigned int baseIdx = (unsigned int)m_meshData.m_Vertices.size();
-			m_meshData.m_Vertices.resize(baseIdx + 3 * nTriangles);
-			m_meshData.m_Colors.resize(baseIdx + 3 * nTriangles);
+            vec3f* vc = (vec3f*)cpuData.d_triangles;
+            for (unsigned int i = 0; i < 3 * nTriangles; i++) {
+                m_meshData.m_Vertices[baseIdx + i] = vc[2 * i + 0];
+                m_meshData.m_Colors[baseIdx + i] = vec4f(vc[2 * i + 1]);
+            }
+        }
+    } else {
+        // some sequences exhaust cpu memory... -> merge first
 
-			vec3f* vc = (vec3f*)cpuData.d_triangles;
-			for (unsigned int i = 0; i < 3 * nTriangles; i++) {
-				m_meshData.m_Vertices[baseIdx + i] = vc[2 * i + 0];
-				m_meshData.m_Colors[baseIdx + i] = vec4f(vc[2 * i + 1]);
-			}
-		}
-	}
-	else {
-		//some sequences exhaust cpu memory... -> merge first
-		
-		if (nTriangles != 0) {
-			MeshDataf md;
+        if (nTriangles != 0) {
+            MeshDataf md;
 
-			md.m_Vertices.resize(3 * nTriangles);
-			md.m_Colors.resize(3 * nTriangles);
+            md.m_Vertices.resize(3 * nTriangles);
+            md.m_Colors.resize(3 * nTriangles);
 
-			vec3f* vc = (vec3f*)cpuData.d_triangles;
-			for (unsigned int i = 0; i < 3 * nTriangles; i++) {
-				md.m_Vertices[i] = vc[2 * i + 0];
-				md.m_Colors[i] = vec4f(vc[2 * i + 1]);
-			}
+            vec3f* vc = (vec3f*)cpuData.d_triangles;
+            for (unsigned int i = 0; i < 3 * nTriangles; i++) {
+                md.m_Vertices[i] = vc[2 * i + 0];
+                md.m_Colors[i] = vec4f(vc[2 * i + 1]);
+            }
 
-			//create index buffer (required for merging the triangle soup)
-			md.m_FaceIndicesVertices.resize(md.m_Vertices.size());
-			for (unsigned int i = 0; i < (unsigned int)md.m_Vertices.size() / 3; i++) {
-				md.m_FaceIndicesVertices[i][0] = 3 * i + 0;
-				md.m_FaceIndicesVertices[i][1] = 3 * i + 1;
-				md.m_FaceIndicesVertices[i][2] = 3 * i + 2;
-			}
+            // create index buffer (required for merging the triangle soup)
+            md.m_FaceIndicesVertices.resize(md.m_Vertices.size());
+            for (unsigned int i = 0; i < (unsigned int)md.m_Vertices.size() / 3;
+                 i++) {
+                md.m_FaceIndicesVertices[i][0] = 3 * i + 0;
+                md.m_FaceIndicesVertices[i][1] = 3 * i + 1;
+                md.m_FaceIndicesVertices[i][2] = 3 * i + 2;
+            }
 
-			md.mergeCloseVertices(0.0001f, true);
-			md.removeDuplicateFaces();
-			if (md.m_FaceIndicesVertices.size() > 0)
-				m_meshData.merge(md);
-		}
-	}
-	cpuData.free(); 
+            md.mergeCloseVertices(0.0001f, true);
+            md.removeDuplicateFaces();
+            if (md.m_FaceIndicesVertices.size() > 0) m_meshData.merge(md);
+        }
+    }
+    cpuData.free();
 }
 
+void CUDAMarchingCubesHashSDF::saveMesh(
+        const std::string& filename,
+        const mat4f* transform /*= NULL*/,
+        bool overwriteExistingFile /*= false*/) {
+    std::string folder = util::directoryFromPath(filename);
+    if (!util::directoryExists(folder)) {
+        util::makeDirectory(folder);
+    }
 
-void CUDAMarchingCubesHashSDF::saveMesh(const std::string& filename, const mat4f *transform /*= NULL*/, bool overwriteExistingFile /*= false*/)
-{
-	std::string folder = util::directoryFromPath(filename);
-	if (!util::directoryExists(folder)) {
-		util::makeDirectory(folder);
-	} 
+    std::string actualFilename = filename;
+    if (!overwriteExistingFile) {
+        while (util::fileExists(actualFilename)) {
+            std::string path = util::directoryFromPath(actualFilename);
+            std::string curr = util::fileNameFromPath(actualFilename);
+            std::string ext = util::getFileExtension(curr);
+            curr = util::removeExtensions(curr);
+            std::string base = util::getBaseBeforeNumericSuffix(curr);
+            unsigned int num = util::getNumericSuffix(curr);
+            if (num == (unsigned int)-1) {
+                num = 0;
+            }
+            actualFilename = path + base + std::to_string(num + 1) + "." + ext;
+        }
+    }
 
-	std::string actualFilename = filename;
-	if (!overwriteExistingFile) {
-		while (util::fileExists(actualFilename)) {
-			std::string path = util::directoryFromPath(actualFilename);
-			std::string curr = util::fileNameFromPath(actualFilename);
-			std::string ext = util::getFileExtension(curr);
-			curr = util::removeExtensions(curr);
-			std::string base = util::getBaseBeforeNumericSuffix(curr);
-			unsigned int num = util::getNumericSuffix(curr);
-			if (num == (unsigned int)-1) {
-				num = 0;
-			}
-			actualFilename = path + base + std::to_string(num + 1) + "." + ext;
-		}
-	}
+    // create index buffer (required for merging the triangle soup)
+    if (!m_meshData.hasVertexIndices()) {
+        m_meshData.m_FaceIndicesVertices.resize(m_meshData.m_Vertices.size());
+        for (unsigned int i = 0;
+             i < (unsigned int)m_meshData.m_Vertices.size() / 3; i++) {
+            m_meshData.m_FaceIndicesVertices[i][0] = 3 * i + 0;
+            m_meshData.m_FaceIndicesVertices[i][1] = 3 * i + 1;
+            m_meshData.m_FaceIndicesVertices[i][2] = 3 * i + 2;
+        }
+    }
+    std::cout << "size before:\t" << m_meshData.m_Vertices.size() << std::endl;
 
-	//create index buffer (required for merging the triangle soup)
-	if (!m_meshData.hasVertexIndices()) {
-		m_meshData.m_FaceIndicesVertices.resize(m_meshData.m_Vertices.size());
-		for (unsigned int i = 0; i < (unsigned int)m_meshData.m_Vertices.size() / 3; i++) {
-			m_meshData.m_FaceIndicesVertices[i][0] = 3 * i + 0;
-			m_meshData.m_FaceIndicesVertices[i][1] = 3 * i + 1;
-			m_meshData.m_FaceIndicesVertices[i][2] = 3 * i + 2;
-		}
-	}
-	std::cout << "size before:\t" << m_meshData.m_Vertices.size() << std::endl;
+    // m_meshData.removeDuplicateVertices();
+    // m_meshData.mergeCloseVertices(0.00001f);
+    std::cout << "merging close vertices... ";
+    m_meshData.mergeCloseVertices(0.0001f, true);
+    std::cout << "done!" << std::endl;
+    std::cout << "removing duplicate faces... ";
+    m_meshData.removeDuplicateFaces();
+    std::cout << "done!" << std::endl;
 
-	//m_meshData.removeDuplicateVertices();
-	//m_meshData.mergeCloseVertices(0.00001f);
-	std::cout << "merging close vertices... ";
-	m_meshData.mergeCloseVertices(0.0001f, true);
-	std::cout << "done!" << std::endl;
-	std::cout << "removing duplicate faces... ";
-	m_meshData.removeDuplicateFaces();
-	std::cout << "done!" << std::endl;
+    std::cout << "size after:\t" << m_meshData.m_Vertices.size() << std::endl;
 
-	std::cout << "size after:\t" << m_meshData.m_Vertices.size() << std::endl;
+    if (transform) {
+        m_meshData.applyTransform(*transform);
+    }
 
-	if (transform) {
-		m_meshData.applyTransform(*transform);
-	}
+    std::cout << "saving mesh (" << actualFilename << ") ...";
+    MeshIOf::saveToFile(actualFilename, m_meshData);
+    std::cout << "done!" << std::endl;
 
-	std::cout << "saving mesh (" << actualFilename << ") ...";
-	MeshIOf::saveToFile(actualFilename, m_meshData);
-	std::cout << "done!" << std::endl;
-
-	clearMeshBuffer();
-
+    clearMeshBuffer();
 }
 
+void CUDAMarchingCubesHashSDF::extractIsoSurface(
+        CUDASceneRepChunkGrid& chunkGrid,
+        const RayCastData& rayCastData,
+        const vec3f& camPos,
+        float radius) {
+    chunkGrid.stopMultiThreading();
 
+    const vec3i& minGridPos = chunkGrid.getMinGridPos();
+    const vec3i& maxGridPos = chunkGrid.getMaxGridPos();
 
-void CUDAMarchingCubesHashSDF::extractIsoSurface( CUDASceneRepChunkGrid& chunkGrid, const RayCastData& rayCastData, const vec3f& camPos, float radius)
-{ 
+    clearMeshBuffer();
 
-	chunkGrid.stopMultiThreading();
+    chunkGrid.streamOutToCPUAll();
 
-	const vec3i& minGridPos = chunkGrid.getMinGridPos();
-	const vec3i& maxGridPos = chunkGrid.getMaxGridPos();
+    for (int x = minGridPos.x; x < maxGridPos.x; x++) {
+        for (int y = minGridPos.y; y < maxGridPos.y; y++) {
+            for (int z = minGridPos.z; z < maxGridPos.z; z++) {
+                vec3i chunk(x, y, z);
 
-	clearMeshBuffer();
+                if (chunkGrid.containsSDFBlocksChunk(chunk)) {
+                    std::cout << "Marching Cubes on chunk (" << x << ", " << y
+                              << ", " << z << ") " << std::endl;
 
-	chunkGrid.streamOutToCPUAll();
+                    chunkGrid.streamInToGPUChunkNeighborhood(chunk, 1);
 
-	for (int x = minGridPos.x; x < maxGridPos.x; x++)	{
-		for (int y = minGridPos.y; y < maxGridPos.y; y++) {
-			for (int z = minGridPos.z; z < maxGridPos.z; z++) {
+                    const vec3f& chunkCenter =
+                            chunkGrid.getWorldPosChunk(chunk);
+                    const vec3f& voxelExtends = chunkGrid.getVoxelExtends();
+                    float virtualVoxelSize =
+                            chunkGrid.getHashParams().m_virtualVoxelSize;
 
-				vec3i chunk(x, y, z);			
+                    vec3f minCorner = chunkCenter - voxelExtends / 2.0f -
+                                      vec3f(virtualVoxelSize, virtualVoxelSize,
+                                            virtualVoxelSize) *
+                                              (float)chunkGrid.getHashParams()
+                                                      .m_SDFBlockSize;
+                    vec3f maxCorner = chunkCenter + voxelExtends / 2.0f +
+                                      vec3f(virtualVoxelSize, virtualVoxelSize,
+                                            virtualVoxelSize) *
+                                              (float)chunkGrid.getHashParams()
+                                                      .m_SDFBlockSize;
 
-				if (chunkGrid.containsSDFBlocksChunk(chunk)) {
-					
-					std::cout << "Marching Cubes on chunk (" << x << ", " << y << ", " << z << ") " << std::endl;
+                    extractIsoSurface(chunkGrid.getHashData(),
+                                      chunkGrid.getHashParams(), rayCastData,
+                                      minCorner, maxCorner, true);
 
-					chunkGrid.streamInToGPUChunkNeighborhood(chunk, 1);
+                    chunkGrid.streamOutToCPUAll();
+                }
+            }
+        }
+    }
 
-					const vec3f& chunkCenter = chunkGrid.getWorldPosChunk(chunk);
-					const vec3f& voxelExtends = chunkGrid.getVoxelExtends();
-					float virtualVoxelSize = chunkGrid.getHashParams().m_virtualVoxelSize;
+    unsigned int nStreamedBlocks;
+    chunkGrid.streamInToGPUAll(camPos, radius, true, nStreamedBlocks);
 
-					vec3f minCorner = chunkCenter-voxelExtends/2.0f-vec3f(virtualVoxelSize, virtualVoxelSize, virtualVoxelSize)*(float)chunkGrid.getHashParams().m_SDFBlockSize;
-					vec3f maxCorner = chunkCenter+voxelExtends/2.0f+vec3f(virtualVoxelSize, virtualVoxelSize, virtualVoxelSize)*(float)chunkGrid.getHashParams().m_SDFBlockSize;
-
-					extractIsoSurface(chunkGrid.getHashData(), chunkGrid.getHashParams(), rayCastData, minCorner, maxCorner, true);
-				
-					chunkGrid.streamOutToCPUAll();				
-				}
-			}
-		}
-	}
-
-	unsigned int nStreamedBlocks;
-	chunkGrid.streamInToGPUAll(camPos, radius, true, nStreamedBlocks);
-
-	chunkGrid.startMultiThreading();
+    chunkGrid.startMultiThreading();
 }
 
-void CUDAMarchingCubesHashSDF::extractIsoSurface(const HashData& hashData, const HashParams& hashParams, const RayCastData& rayCastData, const vec3f& minCorner, const vec3f& maxCorner, bool boxEnabled)
-{
-	resetMarchingCubesCUDA(m_data);
+void CUDAMarchingCubesHashSDF::extractIsoSurface(const HashData& hashData,
+                                                 const HashParams& hashParams,
+                                                 const RayCastData& rayCastData,
+                                                 const vec3f& minCorner,
+                                                 const vec3f& maxCorner,
+                                                 bool boxEnabled) {
+    resetMarchingCubesCUDA(m_data);
 
-	m_params.m_maxCorner = MatrixConversion::toCUDA(maxCorner);
-	m_params.m_minCorner = MatrixConversion::toCUDA(minCorner);
-	m_params.m_boxEnabled = boxEnabled;
-	m_data.updateParams(m_params);
+    m_params.m_maxCorner = MatrixConversion::toCUDA(maxCorner);
+    m_params.m_minCorner = MatrixConversion::toCUDA(minCorner);
+    m_params.m_boxEnabled = boxEnabled;
+    m_data.updateParams(m_params);
 
+    // extractIsoSurfaceCUDA(hashData, rayCastData, m_params, m_data);		//OLD
+    // one-pass version (it's inefficient though)
 
-	//extractIsoSurfaceCUDA(hashData, rayCastData, m_params, m_data);		//OLD one-pass version (it's inefficient though)
+    extractIsoSurfacePass1CUDA(hashData, rayCastData, m_params, m_data);
+    extractIsoSurfacePass2CUDA(hashData, rayCastData, m_params, m_data,
+                               m_data.getNumOccupiedBlocks());
 
-	extractIsoSurfacePass1CUDA(hashData, rayCastData, m_params, m_data);
-	extractIsoSurfacePass2CUDA(hashData, rayCastData, m_params, m_data, m_data.getNumOccupiedBlocks());
-
-	copyTrianglesToCPU();
+    copyTrianglesToCPU();
 }
-
-
 
 /*
-void CUDAMarchingCubesHashSDF::extractIsoSurfaceCPU(const HashData& hashData, const HashParams& hashParams, const RayCastData& rayCastData)
+void CUDAMarchingCubesHashSDF::extractIsoSurfaceCPU(const HashData& hashData,
+const HashParams& hashParams, const RayCastData& rayCastData)
 {
-	reset();
-	m_params.m_numOccupiedSDFBlocks = hashParams.m_numOccupiedBlocks;
-	m_data.updateParams(m_params);
+        reset();
+        m_params.m_numOccupiedSDFBlocks = hashParams.m_numOccupiedBlocks;
+        m_data.updateParams(m_params);
 
-	MarchingCubesData cpuData = m_data.copyToCPU();
-	HashData		  cpuHashData = hashData.copyToCPU();
+        MarchingCubesData cpuData = m_data.copyToCPU();
+        HashData		  cpuHashData = hashData.copyToCPU();
 
-	for (unsigned int sdfBlockId = 0; sdfBlockId < m_params.m_numOccupiedSDFBlocks; sdfBlockId++) {
-		for (int x = 0; x < hashParams.m_SDFBlockSize; x++) {
-			for (int y = 0; y < hashParams.m_SDFBlockSize; y++) {
-				for (int z = 0; z < hashParams.m_SDFBlockSize; z++) {
+        for (unsigned int sdfBlockId = 0; sdfBlockId <
+m_params.m_numOccupiedSDFBlocks; sdfBlockId++) { for (int x = 0; x <
+hashParams.m_SDFBlockSize; x++) { for (int y = 0; y < hashParams.m_SDFBlockSize;
+y++) { for (int z = 0; z < hashParams.m_SDFBlockSize; z++) {
 
-					const HashEntry& entry = cpuHashData.d_hashCompactified[sdfBlockId];
-					if (entry.ptr != FREE_ENTRY) {
-						int3 pi_base = cpuHashData.SDFBlockToVirtualVoxelPos(entry.pos);
-						int3 pi = pi_base + make_int3(x,y,z);
-						float3 worldPos = cpuHashData.virtualVoxelPosToWorld(pi);
+                                        const HashEntry& entry =
+cpuHashData.d_hashCompactified[sdfBlockId]; if (entry.ptr != FREE_ENTRY) { int3
+pi_base = cpuHashData.SDFBlockToVirtualVoxelPos(entry.pos); int3 pi = pi_base +
+make_int3(x,y,z); float3 worldPos = cpuHashData.virtualVoxelPosToWorld(pi);
 
-						cpuData.extractIsoSurfaceAtPosition(worldPos, cpuHashData, rayCastData);
-					}
+                                                cpuData.extractIsoSurfaceAtPosition(worldPos,
+cpuHashData, rayCastData);
+                                        }
 
-				} // z
-			} // y
-		} // x
-	} // sdf block id
+                                } // z
+                        } // y
+                } // x
+        } // sdf block id
 
-	// save mesh
-	{
-		std::cout << "saving mesh..." << std::endl;
-		std::string filename = "Scans/scan.ply";
-		unsigned int nTriangles = *cpuData.d_numTriangles;
+        // save mesh
+        {
+                std::cout << "saving mesh..." << std::endl;
+                std::string filename = "Scans/scan.ply";
+                unsigned int nTriangles = *cpuData.d_numTriangles;
 
-		std::cout << "marching cubes: #triangles = " << nTriangles << std::endl;
+                std::cout << "marching cubes: #triangles = " << nTriangles <<
+std::endl;
 
-		if (nTriangles == 0) return;
+                if (nTriangles == 0) return;
 
-		unsigned int baseIdx = (unsigned int)m_meshData.m_Vertices.size();
-		m_meshData.m_Vertices.resize(baseIdx + 3*nTriangles);
-		m_meshData.m_Colors.resize(baseIdx + 3*nTriangles);
+                unsigned int baseIdx = (unsigned
+int)m_meshData.m_Vertices.size(); m_meshData.m_Vertices.resize(baseIdx +
+3*nTriangles); m_meshData.m_Colors.resize(baseIdx + 3*nTriangles);
 
-		vec3f* vc = (vec3f*)cpuData.d_triangles;
-		for (unsigned int i = 0; i < 3*nTriangles; i++) {
-			m_meshData.m_Vertices[baseIdx + i] = vc[2*i+0];
-			m_meshData.m_Colors[baseIdx + i] = vc[2*i+1];
-		}
+                vec3f* vc = (vec3f*)cpuData.d_triangles;
+                for (unsigned int i = 0; i < 3*nTriangles; i++) {
+                        m_meshData.m_Vertices[baseIdx + i] = vc[2*i+0];
+                        m_meshData.m_Colors[baseIdx + i] = vc[2*i+1];
+                }
 
-		//create index buffer (required for merging the triangle soup)
-		m_meshData.m_FaceIndicesVertices.resize(nTriangles);
-		for (unsigned int i = 0; i < nTriangles; i++) {
-			m_meshData.m_FaceIndicesVertices[i][0] = 3*i+0;
-			m_meshData.m_FaceIndicesVertices[i][1] = 3*i+1;
-			m_meshData.m_FaceIndicesVertices[i][2] = 3*i+2;
-		}
+                //create index buffer (required for merging the triangle soup)
+                m_meshData.m_FaceIndicesVertices.resize(nTriangles);
+                for (unsigned int i = 0; i < nTriangles; i++) {
+                        m_meshData.m_FaceIndicesVertices[i][0] = 3*i+0;
+                        m_meshData.m_FaceIndicesVertices[i][1] = 3*i+1;
+                        m_meshData.m_FaceIndicesVertices[i][2] = 3*i+2;
+                }
 
-		//m_meshData.removeDuplicateVertices();
-		//m_meshData.mergeCloseVertices(0.00001f);
-		std::cout << "merging close vertices... ";
-		m_meshData.mergeCloseVertices(0.00001f, true);
-		std::cout << "done!" << std::endl;
-		std::cout << "removing duplicate faces... ";
-		m_meshData.removeDuplicateFaces();
-		std::cout << "done!" << std::endl;
+                //m_meshData.removeDuplicateVertices();
+                //m_meshData.mergeCloseVertices(0.00001f);
+                std::cout << "merging close vertices... ";
+                m_meshData.mergeCloseVertices(0.00001f, true);
+                std::cout << "done!" << std::endl;
+                std::cout << "removing duplicate faces... ";
+                m_meshData.removeDuplicateFaces();
+                std::cout << "done!" << std::endl;
 
-		std::cout << "saving mesh (" << filename << ") ...";
-		MeshIOf::saveToFile(filename, m_meshData);
-		std::cout << "done!" << std::endl;
+                std::cout << "saving mesh (" << filename << ") ...";
+                MeshIOf::saveToFile(filename, m_meshData);
+                std::cout << "done!" << std::endl;
 
-		clearMeshBuffer();
-	}
+                clearMeshBuffer();
+        }
 
-	cpuData.free();
+        cpuData.free();
 }
 */
